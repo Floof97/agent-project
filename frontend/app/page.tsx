@@ -5,7 +5,7 @@ import { Send, Bot, User, ShieldCheck, Plus, FileText, Settings, Search } from '
 
 export default function LighterGreenAgent() {
     const [messages, setMessages] = useState([
-        { role: 'assistant', content: 'Welcome back. I have analyzed your project safety documents. How can I assist with compliance today?' }
+        { role: 'assistant', content: 'Welcome back. How can I assist you today?' }
     ]);
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -30,7 +30,10 @@ export default function LighterGreenAgent() {
             const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: input }),
+                body: JSON.stringify({
+                    message: input,
+                    thread_id: "user_123" // You can hardcode this for now
+                }),
             });
 
             const data = await response.json();
@@ -61,7 +64,7 @@ export default function LighterGreenAgent() {
                     <div className="bg-emerald-500 p-2 rounded-xl text-white shadow-lg shadow-emerald-200">
                         <ShieldCheck size={24} />
                     </div>
-                    <h1 className="font-bold text-lg tracking-tight text-slate-800">Ragguard <span className="text-emerald-500 text-[10px] align-top">AI</span></h1>
+                    <h1 className="font-bold text-lg tracking-tight text-slate-800">LegalGuard <span className="text-emerald-500 text-[10px] align-top">AI</span></h1>
                 </div>
 
                 <button className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-all p-3 rounded-xl mb-8 text-sm font-semibold border border-emerald-200">

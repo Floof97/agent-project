@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from langchain_ollama import ChatOllama
+from app.graph import app_graph  # Import your new graph
 
 app = FastAPI()
 
@@ -13,26 +13,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Gemma 4 (use e2b since it fits your RAM)
-llm = ChatOllama(model="gemma4:e2b", temperature=0.7)
-
 class ChatRequest(BaseModel):
     message: str
+    thread_id: str = "default-user" # Added for memory tracking
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
-        print(f"Received message: {request.message}") # Debugging
+        # Configuration for memory (points to a specific conversation)
+        config = {"configurable": {"thread_id": request.thread_id}}
         
-        # Ensure we are getting a clean string back
-        response = llm.invoke(request.message)
+        # Run the graph
+        # We pass the input as a "user" message
+        input_data = {"messages": [("user", request.message)]}
+        result = app_graph.invoke(input_data, config)
         
-        # Some versions of LangChain return an object, we need the .content
-        ai_text = response.content if hasattr(response, 'content') else str(response)
+        # Get the last message (the AI's response) from the state
+        ai_response = result["messages"][-1].content
         
-        print(f"AI Response: {ai_text}") # Debugging
-        return {"response": ai_text}
-        
+        return {"response": ai_response}
     except Exception as e:
-        print(f"Error in backend: {e}")
-        return {"response": "I encountered an error while thinking."}
+        print(f"Graph Error: {e}")
+        return {"response": "My memory circuits are fuzzy. Error occurred."}
