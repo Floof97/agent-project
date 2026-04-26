@@ -1,6 +1,17 @@
-venv/
+# Ignore the Python virtual environment
+backend/venv/
 
-# Python cache files
-__pycache__/
+# Ignore the Vector Database (The files that keep changing)
+backend/chroma_db/
+
+# Ignore Python cache files
+**/__pycache__/
 *.py[cod]
-*$py.class
+
+# Ignore Next.js build files and modules
+frontend/node_modules/
+frontend/.next/
+
+# Ignore environment variables (Important for security later!)
+.env
+.env.local

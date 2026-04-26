@@ -108,8 +108,8 @@ export default function LighterGreenAgent() {
                             <Bot size={20} className="text-emerald-600" />
                         </div>
                         <div>
-                            <h2 className="font-bold text-slate-800">Compliance Assistant</h2>
-                            <p className="text-[11px] text-emerald-500 font-medium">Local Privacy Mode Active</p>
+                            <h2 className="font-bold text-slate-800">FAQ Assistant</h2>
+                            <p className="text-[11px] text-emerald-500 font-medium">RAG Engine Mode Active</p>
                         </div>
                     </div>
                 </header>
