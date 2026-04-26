@@ -61,10 +61,10 @@ export default function LighterGreenAgent() {
             {/* SIDEBAR: Lighter Sage Theme */}
             <aside className="w-72 bg-white border-r border-emerald-100 flex flex-col p-6 shadow-sm">
                 <div className="flex items-center gap-3 mb-10 px-2">
-                    <div className="bg-emerald-500 p-2 rounded-xl text-white shadow-lg shadow-emerald-200">
+                    <div className="bg-[#006e35] p-2 rounded-xl text-white shadow-lg shadow-emerald-200">
                         <ShieldCheck size={24} />
                     </div>
-                    <h1 className="font-bold text-lg tracking-tight text-slate-800">LegalGuard <span className="text-emerald-500 text-[10px] align-top">AI</span></h1>
+                    <h1 className="font-bold text-lg tracking-tight text-slate-800 text-[23px]">Raguard.ai <span className="text-slate-800 text-[10px] align-top">TM</span></h1>
                 </div>
 
                 <button className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-all p-3 rounded-xl mb-8 text-sm font-semibold border border-emerald-200">
