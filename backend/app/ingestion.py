@@ -1,4 +1,5 @@
 import os
+import random
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
@@ -6,6 +7,30 @@ from langchain_community.vectorstores import Chroma
 
 # 1. Setup the Embedding Model (The "Translator")
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+def run_ingestion_health_check(vector_db, sample_text: str):
+    """
+    Tests if the DB can find a specific known string from the PDF.
+    High similarity score = Successful ingestion.
+    """
+    print("\n--- Running Ingestion Health Check ---")
+    
+    # Search the DB for the sample text
+    results = vector_db.similarity_search_with_relevance_scores(sample_text, k=1)
+    
+    if results:
+        doc, score = results[0]
+        print(f"Similarity Score: {score:.4f} (Target: > 0.7)")
+        print(f"Retrieved Content: {doc.page_content[:100]}...")
+        
+        if score > 0.8:
+            print("✅ STATUS: High Accuracy. Data is well-represented.")
+        elif score > 0.6:
+            print("⚠️ STATUS: Moderate Accuracy. Consider adjusting chunk size.")
+        else:
+            print("❌ STATUS: Low Accuracy. Retrieval is struggling.")
+    else:
+        print("❌ STATUS: Failed. No data found for the sample text.")
 
 def process_pdf(file_path: str, collection_name: str):
     print(f"--- Starting Ingestion for: {file_path} ---")
@@ -17,7 +42,8 @@ def process_pdf(file_path: str, collection_name: str):
     for page in loader.lazy_load():
         pages.append(page)
     
-    print(f"Total pages loaded: {len(pages)}")
+    total_pages = len(pages)
+    print(f"Total pages loaded: {total_pages}")
 
     # 3. Chunking (The Secret to Precision)
     # For business docs, we use a smaller chunk size with overlap
@@ -38,8 +64,20 @@ def process_pdf(file_path: str, collection_name: str):
         persist_directory="./chroma_db",
         collection_name=collection_name
     )
-    
+
+    # 5. Automatic Health Check Reporting after each pdf file has been added
+    print("\n--- 📋 INGESTION REPORT ---")
+    # Page Count Verification
+    all_data = vector_db.get()
+    indexed_pages = len(set(m.get('page') for m in all_data['metadatas'] if m.get('page') is not None))
+    print(f"Indexed Pages: {indexed_pages} / {total_pages}")
+
+    # Automated Health Check (Grabs a random chunk to see if it can find itself)
+    if chunks:
+        sample_chunk = random.choice(chunks).page_content
+        run_ingestion_health_check(vector_db, sample_chunk)
     print("--- Ingestion Complete! ---")
+
     return vector_db
 
 
@@ -56,6 +94,12 @@ if __name__ == "__main__":
     if os.path.exists(TEST_PDF_PATH):
         print("File found! Starting the engine...")
         process_pdf(TEST_PDF_PATH, COLLECTION_NAME)
+
+        # WANT TO RUN A MANUAL SEARCH TEST?
+        # You can uncomment the line below to test a specific question manually:
+        # db = process_pdf(TEST_PDF_PATH, COLLECTION_NAME)
+        # run_health_check(db, "What is the return policy?")
+
     else:
         print(f"Error: Could not find the file at {TEST_PDF_PATH}")
         print("Please put a PDF in the folder and update the TEST_PDF_PATH variable.")
