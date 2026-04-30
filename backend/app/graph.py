@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # 1. Global Setup (Models stay the same)
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
-llm = ChatOllama(model="llama3.2:1b", temperature=0)
+llm = ChatOllama(model="gemma4:e2b", temperature=0)
 
 # 2. Define the State
 class State(TypedDict):
