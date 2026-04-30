@@ -4,6 +4,11 @@ backend/venv/
 # Ignore the Vector Database (The files that keep changing)
 backend/chroma_db/
 
+# Ignore all files in the data folder
+backend/data/*
+# But DO NOT ignore the .gitkeep file (this keeps the folder existing on GitHub)
+!backend/data/.gitkeep
+
 # Ignore Python cache files
 **/__pycache__/
 *.py[cod]
