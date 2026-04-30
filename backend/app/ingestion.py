@@ -49,7 +49,7 @@ def process_pdf(file_path: str, collection_name: str):
     # For business docs, we use a smaller chunk size with overlap
     # This ensures context isn't cut off mid-sentence
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800, 
+        chunk_size=400, 
         chunk_overlap=100,
         separators=["\n\n", "\n", ".", " "]
     )
@@ -79,6 +79,20 @@ def process_pdf(file_path: str, collection_name: str):
     print("--- Ingestion Complete! ---")
 
     return vector_db
+
+def delete_pdf_from_db(filename: str, collection_name: str):
+    """
+    Removes all chunks associated with a specific filename from ChromaDB.
+    """
+    print(f"--- 🗑️ Deleting {filename} from {collection_name} ---")
+    vector_db = Chroma(
+        persist_directory="./chroma_db", 
+        embedding_function=embeddings, 
+        collection_name=collection_name
+    )
+    # Chroma allows deleting by metadata filter
+    vector_db.delete(where={"source": filename})
+    print(f"--- ✅ {filename} deleted from Vector DB ---")
 
 
 # Example usage (uncomment to run manually):
