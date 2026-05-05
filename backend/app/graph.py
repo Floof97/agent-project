@@ -38,10 +38,9 @@ def call_model(state: State):
     query_vector = embeddings.embed_query(user_query)
 
     # 2. Search Supabase using the match_documents function
-    # Note: We lowered the threshold slightly to 0.3 so it's less "strict"
     response = supabase.rpc('match_documents', {
         'query_embedding': query_vector,
-        'match_threshold': 0.3, 
+        'match_threshold': 0.5, 
         'match_count': 3
     }).execute()
     
@@ -55,11 +54,9 @@ def call_model(state: State):
         context = "No specific documents have been uploaded or found for this query."
         print("ℹ️ No documents found. Falling back to general knowledge.")
 
-    # --- RESPONSE GENERATION (Your original prompt) ---
-    context = "\n\n".join([doc['content'] for doc in docs])
-    
     system_instructions = f"""
-     You are a professional FAQ Assistant.
+    You are a professional FAQ Assistant.
+    If the user is greeting or having a casual conversation, just do the same.
     Use the following pieces of retrieved context to answer the user's question.
     Keep the answers relatively short and to the point.
     If the answer is not in the context, strictly state that you do not have that information.

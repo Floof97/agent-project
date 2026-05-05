@@ -47,7 +47,7 @@ def run_ingestion_health_check(sample_text: str, user_id: str):
     else:
         print("❌ STATUS: Failed. Could not find data in Supabase.")
 
-def process_pdf(file_path: str, user_id: str):
+def process_pdf(file_path: str, user_id: str, original_name: str = None):
     print(f"--- 🚀 Starting Supabase Ingestion for: {file_path} ---")
     
     # 2. Load the PDF
@@ -68,7 +68,7 @@ def process_pdf(file_path: str, user_id: str):
     chunks = text_splitter.split_documents(pages)
     print(f"Split into {len(chunks)} chunks. Generating embeddings...")
 
-    clean_filename = os.path.basename(file_path)
+    clean_filename = clean_filename = original_name if original_name else os.path.basename(file_path)
 
     # 4. Storage (Supabase instead of Chroma)
     for i, chunk in enumerate(chunks):
@@ -101,19 +101,18 @@ def process_pdf(file_path: str, user_id: str):
     print("--- ✅ Ingestion Complete! ---")
 
 def delete_pdf_from_supabase(filename: str, user_id: str):
-    """
-    Removes chunks associated with a specific file for a specific user.
-    """
-    print(f"--- 🗑️ Deleting {filename} for User {user_id} ---")
-    
-    # We filter by both filename (inside metadata) and user_id for safety
-    response = supabase.table("document_chunks") \
-        .delete() \
-        .eq("user_id", user_id) \
-        .filter("metadata->>source", "eq", filename) \
-        .execute()
-    
-    print(f"--- ✅ Deletion complete ---")
+    # This specifically looks for the 'source' key we saved in the metadata
+    try:
+        supabase.table("document_chunks") \
+            .delete() \
+            .eq("user_id", user_id) \
+            .filter("metadata->>source", "eq", filename) \
+            .execute()
+        print(f"✅ Supabase chunks for {filename} have been wiped.")
+        return True
+    except Exception as e:
+        print(f"❌ Supabase Delete Error: {e}")
+        return False
 
 # Example Usage
 if __name__ == "__main__":

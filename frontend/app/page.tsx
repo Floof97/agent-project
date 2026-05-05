@@ -16,10 +16,20 @@ export default function LighterGreenAgent() {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+    const [threadId] = useState(crypto.randomUUID()); // Generates a fresh ID every refresh
+    const [userId, setUserId] = useState<string | null>(null); // Add this line
 
     // 1. Fetch files on load
     useEffect(() => {
-        fetchFiles();
+        const initialize = async () => {
+            // Get the actual user object
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setUserId(user.id);
+            }
+            fetchFiles();
+        };
+        initialize();
     }, []);
 
     const fetchFiles = async () => {
@@ -65,9 +75,29 @@ export default function LighterGreenAgent() {
 
     const confirmDelete = async () => {
         if (!fileToDelete) return;
-        await fetch(`http://127.0.0.1:8000/files/${fileToDelete}`, { method: 'DELETE' });
-        setFileToDelete(null);
-        fetchFiles();
+
+        // 1. Get the session for the token
+        const { data: { session } } = await supabase.auth.getSession();
+
+        try {
+            // 2. Send the DELETE request with the Token
+            const response = await fetch(`http://127.0.0.1:8000/files/${fileToDelete}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${session?.access_token}`
+                }
+            });
+
+            if (response.ok) {
+                setFileToDelete(null);
+                fetchFiles(); // Refresh the sidebar list
+            } else {
+                const err = await response.json();
+                alert("Delete failed: " + err.detail);
+            }
+        } catch (error) {
+            console.error("Delete Error:", error);
+        }
     };
 
     useEffect(() => {
@@ -92,7 +122,10 @@ export default function LighterGreenAgent() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ message: input }),
+                body: JSON.stringify({
+                    message: input,
+                    thread_id: threadId
+                }),
             });
 
             // CRITICAL: If the server says 401 or 500, this stops the crash
@@ -152,7 +185,7 @@ export default function LighterGreenAgent() {
                             {activeFiles.map((doc, i) => (
                                 <div key={i} className="flex items-center justify-between p-3 hover:bg-emerald-50/50 rounded-xl group cursor-pointer transition-all">
                                     <div className="flex items-center gap-3 truncate flex-1" onClick={() => setSelectedFile(doc)}>
-                                        <FileText size={18} className="text-emerald-400" />
+                                        <FileText size={18} className="text-emerald-400 shrink-0" />
                                         <span className="text-sm text-slate-600 truncate group-hover:text-slate-900">{doc}</span>
                                     </div>
                                     <button onClick={(e) => { e.stopPropagation(); openDeleteModal(doc); }}
@@ -252,7 +285,11 @@ export default function LighterGreenAgent() {
                             <h3 className="font-bold text-slate-700 flex items-center gap-2"><FileText size={20} /> {selectedFile}</h3>
                             <button onClick={() => setSelectedFile(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"><X size={24} /></button>
                         </div>
-                        <iframe src={`http://127.0.0.1:8000/view/${selectedFile}`} className="w-full h-full" title="PDF Viewer" />
+                        <iframe
+                            src={`http://127.0.0.1:8000/view/${userId}_${selectedFile}`}
+                            className="w-full h-full"
+                            title="PDF Viewer"
+                        />
                     </div>
                 </div>
             )}
