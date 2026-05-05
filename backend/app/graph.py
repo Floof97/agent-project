@@ -1,42 +1,62 @@
+import os
 from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
 from langgraph.checkpoint.memory import MemorySaver
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 1. Global Setup (Models stay the same)
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
-llm = ChatOllama(model="gemma4:e2b", temperature=0)
+llm = ChatOllama(model="llama3.2:1b", temperature=0)
+# llm = ChatOllama(model="gemma4:e2b", temperature=0)
+# llm = ChatOllama(model="gemma4:eb", temperature=0)
+
+# Initialize Supabase
+supabase: Client = create_client(
+    os.environ.get("SUPABASE_URL"), 
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+)
 
 # 2. Define the State
 class State(TypedDict):
     messages: Annotated[list, add_messages]
+    user_id: str # We keep this so we can filter by user
 
-# 3. Define the Logic Node
+# 3. Define the Logic Node (Back to your original structure)
 def call_model(state: State):
     user_query = state["messages"][-1].content
+    user_id = state.get("user_id", "default-user")
 
-    # --- FRESH CONNECTION ---
-    # We define the DB inside the function so it 're-scans' the folder every time
-    db = Chroma(
-        persist_directory="./chroma_db", 
-        embedding_function=embeddings, 
-        collection_name="business_FAQ_docs"
-    )
-    
-    # --- RETRIEVAL ---
+    # --- RETRIEVAL (The Supabase Way) ---
     print(f"--- 🔍 Searching Knowledge Base for: {user_query} ---")
-    # We create the retriever locally so it's always up to date
-    retriever = db.as_retriever(search_kwargs={"k": 3})
-    docs = retriever.invoke(user_query)
     
-    # --- DATA CHECK ---
-    if not docs:
-        return {"messages": [("assistant", "I've checked the documents, but I don't see any information on that. Can you provide more detail?")]}
+    # 1. Embed the user query
+    query_vector = embeddings.embed_query(user_query)
 
-    # --- RESPONSE GENERATION ---
-    context = "\n\n".join([doc.page_content for doc in docs])
+    # 2. Search Supabase using the match_documents function
+    # Note: We lowered the threshold slightly to 0.3 so it's less "strict"
+    response = supabase.rpc('match_documents', {
+        'query_embedding': query_vector,
+        'match_threshold': 0.3, 
+        'match_count': 3
+    }).execute()
+    
+    docs = response.data
+
+    # --- DATA CHECK ---
+    if docs:
+        context = "\n\n".join([doc['content'] for doc in docs])
+        print(f"✅ Found {len(docs)} relevant chunks in Supabase.")
+    else:
+        context = "No specific documents have been uploaded or found for this query."
+        print("ℹ️ No documents found. Falling back to general knowledge.")
+
+    # --- RESPONSE GENERATION (Your original prompt) ---
+    context = "\n\n".join([doc['content'] for doc in docs])
     
     system_instructions = f"""
      You are a professional FAQ Assistant.
@@ -49,7 +69,6 @@ def call_model(state: State):
     {context}
     """
     
-    # We put the system prompt at the start of the message chain
     messages_for_llm = [("system", system_instructions)] + state["messages"]
     
     response = llm.invoke(messages_for_llm)

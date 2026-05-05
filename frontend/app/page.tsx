@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, ShieldCheck, Plus, FileText, Settings, Search, Trash2, Upload, X, AlertTriangle } from 'lucide-react';
+import { supabase } from '@/utils/supabaseClient'; // Import our helper
 
 export default function LighterGreenAgent() {
     const [messages, setMessages] = useState([
@@ -22,7 +23,12 @@ export default function LighterGreenAgent() {
     }, []);
 
     const fetchFiles = async () => {
-        const res = await fetch('http://127.0.0.1:8000/files');
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const res = await fetch('http://127.0.0.1:8000/files', {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
+        });
         const data = await res.json();
         setActiveFiles(data.files || []);
     };
@@ -33,17 +39,22 @@ export default function LighterGreenAgent() {
         const file = e.target.files[0];
         setIsUploading(true);
 
+        const { data: { session } } = await supabase.auth.getSession();
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            await fetch('http://127.0.0.1:8000/upload', { method: 'POST', body: formData });
-            fetchFiles(); // Refresh list
+            await fetch('http://127.0.0.1:8000/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${session?.access_token}` },
+                body: formData
+            });
+            fetchFiles();
         } catch (error) {
             console.error("Upload failed", error);
         } finally {
             setIsUploading(false);
-            e.target.value = ''; // This clears the input so you can upload the same file again immediately, and not get frozen
+            e.target.value = '';
         }
     };
 
@@ -69,37 +80,37 @@ export default function LighterGreenAgent() {
         e.preventDefault();
         if (!input.trim()) return;
 
-        const userMessage = { role: 'user', content: input };
-        setMessages(prev => [...prev, userMessage]);
+        const { data: { session } } = await supabase.auth.getSession();
+        setMessages(prev => [...prev, { role: 'user', content: input }]);
         setInput('');
-        setIsTyping(true);
+        setIsTyping(true); // Dots ON
 
         try {
             const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: input,
-                    thread_id: "user_123" // You can hardcode this for now
-                }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({ message: input }),
             });
 
-            const data = await response.json();
-
-            if (data.response) {
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: data.response
-                }]);
+            // CRITICAL: If the server says 401 or 500, this stops the crash
+            if (!response.ok) {
+                const errorData = await response.text();
+                throw new Error(errorData || "Server Error");
             }
+
+            const data = await response.json();
+            setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
         } catch (error) {
-            console.error("Error calling AI:", error);
+            console.error("Chat Error:", error);
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: "Error: Could not connect to the local AI. Make sure the backend is running!"
+                content: "I'm having trouble connecting to the brain. Check if the backend is running!"
             }]);
         } finally {
-            setIsTyping(false);
+            setIsTyping(false); // Dots OFF (Always runs)
         }
     };
 

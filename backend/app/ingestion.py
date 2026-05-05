@@ -1,43 +1,57 @@
 import os
 import random
+from supabase import create_client, Client
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
+from dotenv import load_dotenv
 
-# 1. Setup the Embedding Model (The "Translator")
+# 1. Setup & Environment
+load_dotenv()
+
+# Initialize Supabase Client
+url: str = os.environ.get("SUPABASE_URL")
+key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+supabase: Client = create_client(url, key)
+
+# Initialize Embeddings (Ollama must be running!)
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-def run_ingestion_health_check(vector_db, sample_text: str):
+def run_ingestion_health_check(sample_text: str, user_id: str):
     """
-    Tests if the DB can find a specific known string from the PDF.
-    High similarity score = Successful ingestion.
+    Asks Supabase to find a specific string to verify it was saved correctly.
     """
     print("\n--- Running Ingestion Health Check ---")
     
-    # Search the DB for the sample text
-    results = vector_db.similarity_search_with_relevance_scores(sample_text, k=1)
+    # Generate vector for the sample text
+    query_vector = embeddings.embed_query(sample_text)
     
-    if results:
-        doc, score = results[0]
-        print(f"Similarity Score: {score:.4f} (Target: > 0.7)")
-        print(f"Retrieved Content: {doc.page_content[:100]}...")
+    # Call the 'match_documents' function we created in the Supabase SQL editor
+    # RLS will handle the user_id filtering automatically
+    response = supabase.rpc('match_documents', {
+        'query_embedding': query_vector,
+        'match_threshold': 0.7,
+        'match_count': 1
+    }).execute()
+    
+    if response.data:
+        result = response.data[0]
+        score = result.get('similarity', 0)
+        print(f"Similarity Score: {score:.4f}")
+        print(f"Retrieved Content: {result['content'][:100]}...")
         
         if score > 0.8:
-            print("✅ STATUS: High Accuracy. Data is well-represented.")
-        elif score > 0.6:
-            print("⚠️ STATUS: Moderate Accuracy. Consider adjusting chunk size.")
+            print("✅ STATUS: Data successfully synced to Supabase.")
         else:
-            print("❌ STATUS: Low Accuracy. Retrieval is struggling.")
+            print("⚠️ STATUS: Data found, but similarity is lower than expected.")
     else:
-        print("❌ STATUS: Failed. No data found for the sample text.")
+        print("❌ STATUS: Failed. Could not find data in Supabase.")
 
-def process_pdf(file_path: str, collection_name: str):
-    print(f"--- Starting Ingestion for: {file_path} ---")
+def process_pdf(file_path: str, user_id: str):
+    print(f"--- 🚀 Starting Supabase Ingestion for: {file_path} ---")
     
-    # 2. Load the PDF (Page by Page to save RAM)
+    # 2. Load the PDF
     loader = PyPDFLoader(file_path)
-    # lazy_load() is better for huge files
     pages = []
     for page in loader.lazy_load():
         pages.append(page)
@@ -45,75 +59,72 @@ def process_pdf(file_path: str, collection_name: str):
     total_pages = len(pages)
     print(f"Total pages loaded: {total_pages}")
 
-    # 3. Chunking (The Secret to Precision)
-    # For business docs, we use a smaller chunk size with overlap
-    # This ensures context isn't cut off mid-sentence
+    # 3. Chunking
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=400, 
         chunk_overlap=100,
         separators=["\n\n", "\n", ".", " "]
     )
     chunks = text_splitter.split_documents(pages)
-    print(f"Split into {len(chunks)} chunks.")
+    print(f"Split into {len(chunks)} chunks. Generating embeddings...")
 
-    # 4. Storage (Vector Database)
-    # This creates a folder named 'vector_db' in your project
-    vector_db = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory="./chroma_db",
-        collection_name=collection_name
-    )
+    clean_filename = os.path.basename(file_path)
 
-    # 5. Automatic Health Check Reporting after each pdf file has been added
+    # 4. Storage (Supabase instead of Chroma)
+    for i, chunk in enumerate(chunks):
+        # Generate the vector embedding
+        vector = embeddings.embed_query(chunk.page_content)
+        
+        # Prepare the data row
+        # 'source' is pulled from chunk metadata (usually the filename)
+        row = {
+            "user_id": user_id,
+            "content": chunk.page_content,
+            "metadata": {**chunk.metadata, "source": clean_filename},
+            "embedding": vector
+        }
+        
+        # Insert into the 'document_chunks' table
+        supabase.table("document_chunks").insert(row).execute()
+        
+        if (i + 1) % 10 == 0:
+            print(f"Uploaded {i + 1}/{len(chunks)} chunks...")
+
     print("\n--- 📋 INGESTION REPORT ---")
-    # Page Count Verification
-    all_data = vector_db.get()
-    indexed_pages = len(set(m.get('page') for m in all_data['metadatas'] if m.get('page') is not None))
-    print(f"Indexed Pages: {indexed_pages} / {total_pages}")
+    print(f"Chunks Saved: {len(chunks)}")
 
-    # Automated Health Check (Grabs a random chunk to see if it can find itself)
+    # Automated Health Check
     if chunks:
         sample_chunk = random.choice(chunks).page_content
-        run_ingestion_health_check(vector_db, sample_chunk)
-    print("--- Ingestion Complete! ---")
+        run_ingestion_health_check(sample_chunk, user_id)
+    
+    print("--- ✅ Ingestion Complete! ---")
 
-    return vector_db
-
-def delete_pdf_from_db(filename: str, collection_name: str):
+def delete_pdf_from_supabase(filename: str, user_id: str):
     """
-    Removes all chunks associated with a specific filename from ChromaDB.
+    Removes chunks associated with a specific file for a specific user.
     """
-    print(f"--- 🗑️ Deleting {filename} from {collection_name} ---")
-    vector_db = Chroma(
-        persist_directory="./chroma_db", 
-        embedding_function=embeddings, 
-        collection_name=collection_name
-    )
-    # Chroma allows deleting by metadata filter
-    vector_db.delete(where={"source": filename})
-    print(f"--- ✅ {filename} deleted from Vector DB ---")
+    print(f"--- 🗑️ Deleting {filename} for User {user_id} ---")
+    
+    # We filter by both filename (inside metadata) and user_id for safety
+    response = supabase.table("document_chunks") \
+        .delete() \
+        .eq("user_id", user_id) \
+        .filter("metadata->>source", "eq", filename) \
+        .execute()
+    
+    print(f"--- ✅ Deletion complete ---")
 
-
-# Example usage (uncomment to run manually):
-
-# 1. Path to a test PDF (start with a small one, then try the 500-pager)
-# Make sure this file actually exists in your project folder!
-TEST_PDF_PATH = "FAQ_v1.pdf" 
-
-# 2. Give your collection a name (like a table name in a database)
-COLLECTION_NAME = "business_FAQ_docs"
-
+# Example Usage
 if __name__ == "__main__":
+    # Path to your data
+    TEST_PDF_PATH = "./data/FAQ_v1.pdf" 
+    
+    # IMPORTANT: Use a dummy UUID for now. 
+    # Once Next.js is set up, this will be a real user ID.
+    DUMMY_USER_ID = "7b4c3006-6194-46af-b17b-750bdcfb747a"
+
     if os.path.exists(TEST_PDF_PATH):
-        print("File found! Starting the engine...")
-        process_pdf(TEST_PDF_PATH, COLLECTION_NAME)
-
-        # WANT TO RUN A MANUAL SEARCH TEST?
-        # You can uncomment the line below to test a specific question manually:
-        # db = process_pdf(TEST_PDF_PATH, COLLECTION_NAME)
-        # run_health_check(db, "What is the return policy?")
-
+        process_pdf(TEST_PDF_PATH, DUMMY_USER_ID)
     else:
-        print(f"Error: Could not find the file at {TEST_PDF_PATH}")
-        print("Please put a PDF in the folder and update the TEST_PDF_PATH variable.")
+        print(f"Error: Could not find {TEST_PDF_PATH}")
